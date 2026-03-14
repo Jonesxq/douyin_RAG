@@ -1,0 +1,34 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# Env
+.env
+backend/.env
+
+# Runtime data
+backend/storage/videos/*
+backend/storage/audio/*
+backend/storage/playwright/*
+backend/storage/playwright-browsers/*
+backend/storage/chroma/*
+backend/storage/douyin_rag.db
+!backend/storage/videos/.gitkeep
+!backend/storage/audio/.gitkeep
+!backend/storage/playwright/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+
+.uv-cache/
+screenshots/
+

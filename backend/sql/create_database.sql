@@ -1,0 +1,4 @@
+﻿-- This project now uses SQLite by default.
+-- No manual database creation SQL is required.
+-- The database file will be created automatically at:
+-- backend/storage/douyin_rag.db
