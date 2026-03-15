@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "douyin-rag-backend"
 version = "0.1.0"
 description = "Backend for Douyin Favorites RAG MVP"
@@ -17,6 +17,7 @@ dependencies = [
   "faster-whisper==1.2.0",
   "python-multipart==0.0.20",
   "tenacity==9.1.2",
+  "fastembed==0.7.3",
 ]
 
 [tool.uv]

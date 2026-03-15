@@ -1,35 +1,70 @@
-﻿# Douyin Favorites RAG MVP
+﻿# Douyin Favorites RAG
 
-本项目实现个人版“抖音收藏夹 RAG 知识库”MVP：扫码登录抖音后同步收藏列表，勾选视频手动入库，完成音频转写、向量索引，并提供对话问答。
+个人版“抖音收藏夹 RAG 知识库”本地项目：扫码登录抖音后手动同步收藏夹，按收藏夹一键入库（音频转写 -> 切块 -> Chroma 向量），再进行对话问答。
 
 ## 技术栈
 
 - Frontend: React + Vite + TypeScript + CSS
 - Backend: FastAPI + SQLAlchemy + SQLite
 - Vector DB: ChromaDB (本地持久化)
-- ASR: faster-whisper
-- LLM/Embedding: Qwen (OpenAI compatible API)
-- Python dependency manager: uv
+- ASR: faster-whisper (本地)
+- LLM/Embedding: Qwen OpenAI-compatible + 本地 Embedding（默认 `BAAI/bge-small-zh-v1.5`）
+- Python 依赖管理: uv
 
-## 目录结构
+
+## 项目结构
 
 ```text
-backend/      FastAPI, 入库流水线, RAG 服务
-frontend/     React Web UI
+backend/
+  app/
+    main.py                 # FastAPI 入口
+    api/
+      router.py             # 路由聚合
+      routes/
+        auth.py             # 登录与状态
+        favorites.py        # 收藏夹同步与查询
+        knowledge.py        # 入库任务与统计
+        chat.py             # 问答与会话管理
+    core/
+      config.py             # 配置与路径归一化
+      startup_checks.py     # 启动自检
+      logging.py            # 日志配置
+    db/
+      base.py               # ORM Base
+      session.py            # Engine / Session
+      init_db.py            # 建表与重建存储
+    models/
+      entities.py           # 数据表实体定义
+    schemas/
+      dto.py                # API DTO
+    services/
+      douyin_collector.py   # 抖音登录与收藏抓取
+      favorites_service.py  # 收藏差异同步
+      knowledge_service.py  # 入库任务执行
+      media_service.py      # 音频下载与抽取
+      asr_service.py        # 本地 ASR
+      text_processing.py    # 清洗与切块
+      chroma_service.py     # 向量库操作
+      llm_service.py        # Qwen/Embedding 客户端
+      rag_service.py        # 检索与答案生成
+      worker.py             # 后台任务队列
+frontend/
+  src/
+    App.tsx                 # 页面总入口
+    pages/                  # 首页/工作台页面
+    api.ts                  # 前后端 API 调用封装
 ```
 
 ## 环境准备
 
-### 1) 后端依赖（uv）
-
-> 必须使用 Python 3.12（ChromaDB 在 Python 3.14 下存在兼容问题）。
+### 1) Python 3.12 + 后端依赖
 
 ```powershell
 $env:UV_CACHE_DIR="E:\code\douyin_rag\.uv-cache"
 uv sync --project backend --python 3.12
 ```
 
-安装采集所需浏览器（Playwright Chromium）：
+### 2) 安装 Playwright 浏览器
 
 ```powershell
 $env:UV_CACHE_DIR="E:\code\douyin_rag\.uv-cache"
@@ -37,24 +72,21 @@ $env:PLAYWRIGHT_BROWSERS_PATH="E:\code\douyin_rag\backend\storage\playwright-bro
 uv run --project backend playwright install chromium
 ```
 
-系统需安装并加入 PATH：
+### 3) 安装 ffmpeg（并加入 PATH）
 
-- ffmpeg
+Windows 可用 gyan.dev 的 `ffmpeg-git-essentials.7z`。
 
-### 2) 配置环境变量
+### 4) 配置环境变量
 
 ```powershell
 Copy-Item backend/.env.example backend/.env
 ```
 
-编辑 `backend/.env`，至少配置：
+至少配置：
 
 - `QWEN_API_KEY`
 - `QWEN_BASE_URL`
 - `QWEN_CHAT_MODEL`
-- `QWEN_EMBEDDING_MODEL`
-
-> 默认使用 `SQLite + ChromaDB` 本地持久化，不需要额外启动数据库服务。
 
 ## 启动
 
@@ -75,21 +107,28 @@ npm run dev
 
 访问 `http://localhost:5173`。
 
-## API
+## 清库重建（SQLite + Chroma）
+
+```powershell
+uv run --project backend python backend/scripts/rebuild_storage.py
+```
+
+## 新 API
 
 - `POST /auth/douyin/login/start`
 - `GET /auth/douyin/login/status`
-- `GET /douyin/favorites?page=&size=&sync=true`
-- `POST /ingest/jobs`
-- `GET /ingest/jobs/{job_id}`
-- `POST /chat/query`
+- `POST /favorites/sync`
+- `GET /favorites/collections`
+- `GET /favorites/collections/{collection_id}/videos?page=&size=`
+- `POST /knowledge/sync`
+- `GET /knowledge/sync/{task_id}`
+- `GET /knowledge/stats`
+- `POST /chat/ask`
+- `POST /chat/ask/stream`
 
 ## 说明
 
-- 收藏抓取基于 Playwright 页面抓取，受抖音页面结构变化影响。
-- 入库任务并发默认 `2`，可在 `.env` 调整 `INGEST_WORKER_CONCURRENCY`。
-- 问答采用 Chroma 向量检索 + SQLite 关键词召回融合（RRF）。
-
-
-
+- 收藏抓取仅使用抖音收藏夹接口链路（收藏夹列表 + 收藏夹视频列表），不再使用全页 DOM 抓取兜底。
+- 同步与入库均为手动触发，避免页面自动膨胀和无效轮询。
+- 媒体处理采用“仅音频”主链路，不保留完整视频文件。
 

@@ -1,19 +1,19 @@
 ﻿from app.models.entities import (
     ChatMessage,
     ChatSession,
-    Chunk,
-    IngestJob,
-    MediaAsset,
-    SourceItem,
-    TranscriptSegment,
+    FavoriteCollection,
+    FavoriteVideo,
+    SyncTask,
+    UserSession,
+    VideoCache,
 )
 
 __all__ = [
-    "SourceItem",
-    "MediaAsset",
-    "TranscriptSegment",
-    "Chunk",
-    "IngestJob",
+    "UserSession",
+    "FavoriteCollection",
+    "FavoriteVideo",
+    "VideoCache",
+    "SyncTask",
     "ChatSession",
     "ChatMessage",
 ]

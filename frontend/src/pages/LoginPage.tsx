@@ -1,51 +1,28 @@
-﻿import { useEffect, useState } from "react";
+﻿import type { LoginStatus } from "../api";
 
-import { getLoginStatus, startLogin, type LoginStatus } from "../api";
+type Props = {
+  status: LoginStatus;
+  loading: boolean;
+  error: string;
+  onStartLogin: () => Promise<void>;
+  onOpenWorkspace: () => void;
+};
 
-export default function LoginPage() {
-  const [status, setStatus] = useState<LoginStatus>({ status: "idle", message: "" });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const refreshStatus = async () => {
-    try {
-      const data = await getLoginStatus();
-      setStatus(data);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  useEffect(() => {
-    refreshStatus();
-    const timer = window.setInterval(refreshStatus, 3000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const onStartLogin = async () => {
-    setError("");
-    setLoading(true);
-    try {
-      await startLogin();
-      await refreshStatus();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+export default function LoginPage({ status, loading, error, onStartLogin, onOpenWorkspace }: Props) {
   return (
-    <section className="panel">
-      <h2>抖音扫码登录</h2>
-      <p className="muted">点击后会在本机打开浏览器，请在浏览器中扫码。</p>
-      <button onClick={onStartLogin} disabled={loading}>
-        {loading ? "启动中..." : "开始扫码登录"}
-      </button>
-      <div className="status">
-        <span className={`badge badge-${status.status}`}>{status.status}</span>
-        <span>{status.message || "等待操作"}</span>
+    <section className="hero-panel">
+      <h2>douyinRAG</h2>
+      <p className="hero-sub">不让你的收藏视频在收藏夹里吃灰。</p>
+
+      <div className="hero-actions">
+        <button className="primary" onClick={() => void onStartLogin()} disabled={loading}>
+          {loading ? "启动中..." : "扫码登录"}
+        </button>
+        <button className="ghost" onClick={onOpenWorkspace}>
+          打开工作台
+        </button>
       </div>
+
       {error ? <p className="error">{error}</p> : null}
     </section>
   );

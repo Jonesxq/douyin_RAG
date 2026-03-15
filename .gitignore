@@ -20,7 +20,10 @@ backend/storage/audio/*
 backend/storage/playwright/*
 backend/storage/playwright-browsers/*
 backend/storage/chroma/*
+backend/storage/tmp/*
+backend/storage/models/*
 backend/storage/douyin_rag.db
+backend/backend/storage/*
 !backend/storage/videos/.gitkeep
 !backend/storage/audio/.gitkeep
 !backend/storage/playwright/.gitkeep

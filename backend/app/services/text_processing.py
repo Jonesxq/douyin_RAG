@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+"""文本清洗与切块工具。"""
+
 import re
 from dataclasses import dataclass
 
@@ -22,6 +24,13 @@ class ChunkResult:
 
 
 def clean_text(text: str) -> str:
+    """
+    功能：执行 clean_text 的核心业务逻辑。
+    参数：
+    - text：输入参数。
+    返回值：
+    - str：函数处理结果。
+    """
     text = text.replace("\u3000", " ")
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"(啊|嗯|呃){2,}", "", text)
@@ -29,6 +38,13 @@ def clean_text(text: str) -> str:
 
 
 def approx_token_count(text: str) -> int:
+    """
+    功能：执行 approx_token_count 的核心业务逻辑。
+    参数：
+    - text：输入参数。
+    返回值：
+    - int：函数处理结果。
+    """
     if not text:
         return 0
     # Lightweight token estimation for CJK + Latin mixed text.
@@ -38,6 +54,14 @@ def approx_token_count(text: str) -> int:
 
 
 def build_chunks(segments: list[RawSegment], max_tokens: int = 220) -> list[ChunkResult]:
+    """
+    功能：执行 build_chunks 的核心业务逻辑。
+    参数：
+    - segments：输入参数。
+    - max_tokens：输入参数。
+    返回值：
+    - list[ChunkResult]：函数处理结果。
+    """
     chunks: list[ChunkResult] = []
     if not segments:
         return chunks

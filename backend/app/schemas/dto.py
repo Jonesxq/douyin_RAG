@@ -1,20 +1,11 @@
 ﻿from __future__ import annotations
 
+"""Pydantic DTO 定义，用于 API 请求/响应数据校验。"""
+
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
-
-
-class FavoriteItem(BaseModel):
-    id: int
-    platform_item_id: str
-    url: str
-    title: str
-    author: str
-    duration_sec: int | None = None
-    fav_time: datetime | None = None
-    ingest_status: str
 
 
 class LoginStartResponse(BaseModel):
@@ -27,22 +18,56 @@ class LoginStatusResponse(BaseModel):
     message: str = ""
 
 
-class FavoriteListResponse(BaseModel):
-    items: list[FavoriteItem]
+class FavoriteCollectionDTO(BaseModel):
+    id: int
+    collection_id: str
+    title: str
+    item_count: int
+    is_active: bool
+
+
+class FavoriteCollectionsResponse(BaseModel):
+    items: list[FavoriteCollectionDTO]
+
+
+class FavoriteVideoDTO(BaseModel):
+    id: int
+    collection_id: str
+    platform_item_id: str
+    url: str
+    title: str
+    author: str
+    duration_sec: int | None = None
+    status: str
+
+
+class FavoriteVideosResponse(BaseModel):
+    items: list[FavoriteVideoDTO]
     page: int
     size: int
     total: int
 
 
-class CreateIngestJobsRequest(BaseModel):
-    item_ids: list[int] = Field(default_factory=list)
+class FavoritesSyncResponse(BaseModel):
+    collections_total: int
+    videos_total: int
+    added_videos: int
+    removed_videos: int
 
 
-class IngestJobDTO(BaseModel):
+class KnowledgeSyncRequest(BaseModel):
+    collection_ids: list[str] = Field(default_factory=list)
+
+
+class SyncTaskDTO(BaseModel):
     id: int
-    source_item_id: int
+    task_type: str
+    collection_id: str | None = None
     status: str
     step: str
+    progress_total: int
+    progress_done: int
+    message: str
     error_msg: str
     retry_count: int
     created_at: datetime
@@ -50,27 +75,63 @@ class IngestJobDTO(BaseModel):
     finished_at: datetime | None = None
 
 
-class CreateIngestJobsResponse(BaseModel):
-    jobs: list[IngestJobDTO]
+class KnowledgeSyncResponse(BaseModel):
+    tasks: list[SyncTaskDTO]
 
 
-class ChunkHit(BaseModel):
-    chunk_id: int
-    source_item_id: int
+class KnowledgeStatsResponse(BaseModel):
+    total_collections: int
+    total_videos: int
+    processed_videos: int
+    total_chunks: int
+
+
+class ChatHit(BaseModel):
+    chunk_id: str
+    platform_item_id: str
+    title: str
     score: float
     text: str
 
 
-class ChatQueryRequest(BaseModel):
+class ChatAskRequest(BaseModel):
     query: str
     session_id: int | None = None
+    collection_ids: list[str] | None = None
 
 
-class ChatResponse(BaseModel):
+class ChatAskResponse(BaseModel):
     session_id: int
+    route_type: str
     answer: str
     latency_ms: int
-    hits: list[ChunkHit]
+    hits: list[ChatHit]
+
+
+class ChatSessionDTO(BaseModel):
+    id: int
+    title: str
+    message_count: int
+    last_message_at: datetime | None = None
+    created_at: datetime
+
+
+class ChatSessionsResponse(BaseModel):
+    items: list[ChatSessionDTO]
+
+
+class ChatMessageDTO(BaseModel):
+    id: int
+    session_id: int
+    role: str
+    content: str
+    route_type: str
+    created_at: datetime
+
+
+class ChatMessagesResponse(BaseModel):
+    session_id: int
+    items: list[ChatMessageDTO]
 
 
 class ErrorResponse(BaseModel):
