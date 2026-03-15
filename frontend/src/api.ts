@@ -1,4 +1,4 @@
-﻿export type LoginStatus = {
+export type LoginStatus = {
   status: "idle" | "pending" | "logged_in" | "failed";
   message: string;
 };
@@ -109,6 +109,14 @@ export type ChatMessagesResponse = {
   items: ChatMessageItem[];
 };
 
+export type ChatStreamHandlers = {
+  onDelta: (text: string) => void;
+  onMeta?: (meta: ChatAskResponse) => void;
+  onDone?: () => void;
+  onError?: (message: string) => void;
+  signal?: AbortSignal;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -128,12 +136,132 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function parseSseEvent(rawBlock: string): { event: string; payload: unknown } | null {
+  const lines = rawBlock
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return null;
+  }
+
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      event = line.slice(6).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trim());
+    }
+  }
+
+  const rawData = dataLines.join("\n");
+  if (!rawData) {
+    return { event, payload: {} };
+  }
+
+  try {
+    return { event, payload: JSON.parse(rawData) };
+  } catch {
+    return { event, payload: { text: rawData } };
+  }
+}
+
+export async function askQuestionStream(
+  query: string,
+  sessionId: number | undefined,
+  collectionIds: string[] | undefined,
+  handlers: ChatStreamHandlers,
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/chat/ask/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({
+      query,
+      session_id: sessionId ?? null,
+      collection_ids: collectionIds ?? null,
+    }),
+    signal: handlers.signal,
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Request failed: ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error("Stream is not available");
+  }
+
+  const decoder = new TextDecoder("utf-8");
+  const reader = response.body.getReader();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    while (true) {
+      const splitIndex = buffer.indexOf("\n\n");
+      if (splitIndex < 0) {
+        break;
+      }
+
+      const block = buffer.slice(0, splitIndex);
+      buffer = buffer.slice(splitIndex + 2);
+
+      const parsed = parseSseEvent(block);
+      if (!parsed) {
+        continue;
+      }
+
+      if (parsed.event === "delta") {
+        const payload = parsed.payload as { text?: string };
+        if (payload.text) {
+          handlers.onDelta(payload.text);
+        }
+        continue;
+      }
+
+      if (parsed.event === "meta") {
+        handlers.onMeta?.(parsed.payload as ChatAskResponse);
+        continue;
+      }
+
+      if (parsed.event === "done") {
+        handlers.onDone?.();
+        continue;
+      }
+
+      if (parsed.event === "error") {
+        const payload = parsed.payload as { message?: string };
+        const message = payload.message || "Stream request failed";
+        handlers.onError?.(message);
+        throw new Error(message);
+      }
+    }
+  }
+}
+
 export function startLogin(): Promise<{ started: boolean; message: string }> {
   return request("/auth/douyin/login/start", { method: "POST" });
 }
 
 export function getLoginStatus(): Promise<LoginStatus> {
   return request("/auth/douyin/login/status");
+}
+
+export function logoutLogin(): Promise<{ success: boolean; message: string }> {
+  return request("/auth/douyin/login/logout", { method: "POST" });
 }
 
 export function syncFavorites(): Promise<FavoritesSyncResponse> {

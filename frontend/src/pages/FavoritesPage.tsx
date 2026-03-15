@@ -1,15 +1,13 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   createKnowledgeSync,
   getCollections,
   getCollectionVideos,
-  getKnowledgeStats,
   getKnowledgeTask,
   syncFavorites,
   type FavoriteCollection,
   type FavoriteVideo,
-  type KnowledgeStats,
   type SyncTask,
 } from "../api";
 
@@ -32,7 +30,6 @@ type Props = {
 export default function FavoritesPage({ activeCollectionId, onActiveCollectionChange }: Props) {
   const [collections, setCollections] = useState<FavoriteCollection[]>([]);
   const [videos, setVideos] = useState<FavoriteVideo[]>([]);
-  const [stats, setStats] = useState<KnowledgeStats | null>(null);
   const [page, setPage] = useState(1);
   const [size] = useState(12);
   const [total, setTotal] = useState(0);
@@ -57,18 +54,12 @@ export default function FavoritesPage({ activeCollectionId, onActiveCollectionCh
     setTotal(res.total);
   };
 
-  const loadStats = async () => {
-    const value = await getKnowledgeStats();
-    setStats(value);
-  };
-
   const refreshLocal = async () => {
     setError("");
     setLoading(true);
     try {
       await loadCollections();
       await loadVideos();
-      await loadStats();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -113,7 +104,6 @@ export default function FavoritesPage({ activeCollectionId, onActiveCollectionCh
       );
       const byId = new Map<number, SyncTask>(updates);
       setTasks((prev) => prev.map((task) => byId.get(task.id) ?? task));
-      await loadStats().catch(() => null);
       await loadVideos().catch(() => null);
     }, 5000);
 
@@ -144,7 +134,6 @@ export default function FavoritesPage({ activeCollectionId, onActiveCollectionCh
       const payload = activeCollectionId === "all" ? [] : [activeCollectionId];
       const data = await createKnowledgeSync(payload);
       setTasks((prev) => [...data.tasks, ...prev]);
-      await loadStats();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -233,13 +222,6 @@ export default function FavoritesPage({ activeCollectionId, onActiveCollectionCh
         </div>
       </div>
 
-      <div className="stats-strip">
-        <span>收藏夹: {stats?.total_collections ?? 0}</span>
-        <span>视频: {stats?.total_videos ?? 0}</span>
-        <span>已处理: {stats?.processed_videos ?? 0}</span>
-        <span>Chunks: {stats?.total_chunks ?? 0}</span>
-      </div>
-
       <div className="job-feed">
         {tasks.slice(0, 6).map((task) => (
           <div key={task.id} className="job-item">
@@ -254,3 +236,4 @@ export default function FavoritesPage({ activeCollectionId, onActiveCollectionCh
     </section>
   );
 }
+

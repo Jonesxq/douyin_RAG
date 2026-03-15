@@ -2,9 +2,11 @@
 
 """RAG 服务：查询路由、混合检索、答案生成、会话落库。"""
 
+import logging
 import re
 import time
 from collections import defaultdict
+from typing import Iterable
 
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
@@ -23,6 +25,7 @@ from app.services.chroma_service import get_chroma_service
 from app.services.llm_service import QwenClient
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class RagService:
@@ -252,7 +255,7 @@ class RagService:
                     "platform_item_id": row.platform_item_id,
                     "title": row.title,
                     "score": score,
-                    "text": text[:1200] if text else row.title,
+                    "text": text[: settings.rag_excerpt_chars] if text else row.title,
                 }
             )
 
@@ -298,6 +301,23 @@ class RagService:
             )
         return merged
 
+    def _truncate_context(self, context: str, max_chars: int | None = None) -> str:
+        """
+        Function: Trim oversized context before sending to the model.
+        Params:
+        - context: Source context text.
+        - max_chars: Optional max length.
+        Returns:
+        - str: Trimmed context string.
+        """
+        if not context:
+            return ""
+        cap = max_chars if max_chars is not None else settings.rag_prompt_max_context_chars
+        if cap <= 0:
+            return context
+        if len(context) <= cap:
+            return context
+        return context[:cap] + "\n\n[context truncated]"
     def _db_list_context(self, db: Session, scope_ids: set[str]) -> str:
         """
         功能：执行 RagService._db_list_context 的内部处理逻辑。
@@ -326,7 +346,7 @@ class RagService:
             db.query(VideoCache)
             .filter(VideoCache.platform_item_id.in_(scope_ids), VideoCache.status == "success")
             .order_by(VideoCache.processed_at.desc())
-            .limit(30)
+            .limit(settings.rag_db_content_limit)
             .all()
         )
         if not rows:
@@ -334,7 +354,7 @@ class RagService:
 
         parts = []
         for row in rows:
-            excerpt = (row.transcript_text or "")[:1200]
+            excerpt = (row.transcript_text or "")[: settings.rag_excerpt_chars]
             if not excerpt:
                 continue
             parts.append(f"【{row.title}】\n{excerpt}")
@@ -453,58 +473,94 @@ class RagService:
         merged = re.sub(r"\n{3,}", "\n\n", merged).strip()
         return merged
 
-    def _build_answer(self, route: str, query: str, context: str, history_context: str) -> str:
+    def _build_prompts(self, route: str, query: str, context: str, history_context: str) -> tuple[str, str, bool]:
         """
-        功能：执行 RagService._build_answer 的内部处理逻辑。
-        参数：
-        - route：输入参数。
-        - query：输入参数。
-        - context：输入参数。
-        - history_context：输入参数。
-        返回值：
-        - str：函数处理结果。
+        Function: Build final system/user prompts for answer generation.
+        Params:
+        - route: Chosen route type.
+        - query: Normalized user query.
+        - context: Retrieved context text.
+        - history_context: Recent chat history text.
+        Returns:
+        - tuple[str, str, bool]: system prompt, user prompt, structured flag.
         """
         is_structured = self._is_structured_request(query)
-        history_block = f"最近对话历史：\n{history_context}\n\n" if history_context else ""
+        history_block = f"Recent chat history:\n{history_context}\n\n" if history_context else ""
 
         if route == "direct":
             system = (
-                "你是一个自然、友好的助手。请像真人对话一样回答。\n"
+                "You are a natural and friendly assistant. Answer conversationally.\n"
                 f"{self._answer_style_rules(is_structured)}"
             )
-            user = f"{history_block}当前问题: {query}"
-            answer = self._get_qwen().chat(system_prompt=system, user_prompt=user)
-            return self._sanitize_answer_text(answer, is_structured)
+            user = f"{history_block}Current question: {query}"
+            return system, user, is_structured
 
         if route == "db_list":
             system = (
-                "你是收藏夹知识库助手。用户在问列表或清单。"
-                "请先给直接结论，再简洁列出重点。\n"
+                "You are a favorites knowledge-base assistant. The user asks for a list/catalog."
+                " Give the direct conclusion first, then key points.\n"
                 f"{self._answer_style_rules(is_structured)}"
             )
-            user = f"{history_block}问题: {query}\n\n已入库视频:\n{context}"
-            answer = self._get_qwen().chat(system_prompt=system, user_prompt=user)
-            return self._sanitize_answer_text(answer, is_structured)
+            user = f"{history_block}Question: {query}\n\nIndexed videos:\n{context}"
+            return system, user, is_structured
 
         if route == "db_content":
             system = (
-                "你是收藏夹知识库助手。用户在要整体总结。"
-                "请自然表达，不要僵硬模板。\n"
+                "You are a favorites knowledge-base assistant. The user asks for an overview."
+                " Keep the wording natural and concise.\n"
                 f"{self._answer_style_rules(is_structured)}"
             )
-            user = f"{history_block}问题: {query}\n\n内容:\n{context}"
-            answer = self._get_qwen().chat(system_prompt=system, user_prompt=user)
-            return self._sanitize_answer_text(answer, is_structured)
+            user = f"{history_block}Question: {query}\n\nContent:\n{context}"
+            return system, user, is_structured
 
         system = (
-            "你是视频知识库问答助手。基于检索上下文回答。"
-            "先给最直接结论，再补充关键依据。\n"
+            "You are a video knowledge-base QA assistant. Answer from retrieved context."
+            " Give a direct conclusion first, then concise evidence.\n"
             f"{self._answer_style_rules(is_structured)}"
         )
-        user = f"{history_block}问题: {query}\n\n上下文:\n{context}"
-        answer = self._get_qwen().chat(system_prompt=system, user_prompt=user)
-        return self._sanitize_answer_text(answer, is_structured)
+        user = f"{history_block}Question: {query}\n\nContext:\n{context}"
+        return system, user, is_structured
 
+    def _build_answer(self, route: str, query: str, context: str, history_context: str) -> str:
+        """
+        Function: Generate a non-streaming answer from prompts.
+        Params:
+        - route: Chosen route type.
+        - query: Normalized query.
+        - context: Retrieved context.
+        - history_context: Recent chat history.
+        Returns:
+        - str: Final answer text.
+        """
+        system, user, is_structured = self._build_prompts(route, query, context, history_context)
+        answer = self._get_qwen().chat(
+            system_prompt=system,
+            user_prompt=user,
+            timeout_sec=settings.qwen_chat_timeout_sec,
+        )
+        return self._sanitize_answer_text(answer, is_structured)
+    def _log_timing(self, prefix: str, route: str, total_ms: int, scope_count: int, hit_count: int, stages: dict[str, int]) -> None:
+        """
+        Function: Write per-stage timing metrics for diagnostics.
+        Params:
+        - prefix: Log prefix.
+        - route: Final route type.
+        - total_ms: Total latency in ms.
+        - scope_count: Scoped video count.
+        - hit_count: Retrieved hit count.
+        - stages: Stage timing dictionary.
+        Returns:
+        - None: Logging side effect only.
+        """
+        logger.info(
+            "%s route=%s total=%sms scope=%s hits=%s stages=%s",
+            prefix,
+            route,
+            total_ms,
+            scope_count,
+            hit_count,
+            stages,
+        )
     def answer(
         self,
         db: Session,
@@ -513,60 +569,83 @@ class RagService:
         collection_ids: list[str] | None,
     ) -> ChatAskResponse:
         """
-        功能：执行 RagService.answer 的核心业务逻辑。
-        参数：
-        - db：输入参数。
-        - query：输入参数。
-        - session_id：输入参数。
-        - collection_ids：输入参数。
-        返回值：
-        - ChatAskResponse：函数处理结果。
+        Function: Run non-streaming RAG answer pipeline.
+        Params:
+        - db: SQLAlchemy session.
+        - query: User input query.
+        - session_id: Existing chat session id.
+        - collection_ids: Selected collection scope.
+        Returns:
+        - ChatAskResponse: Answer payload with metadata.
         """
         started = time.perf_counter()
+        stages: dict[str, int] = {}
+
+        stage_started = time.perf_counter()
         normalized_query = self._normalize_query(query)
         scope_ids = self._resolve_scope_item_ids(db, collection_ids)
         has_data = bool(scope_ids)
         route = self._route(normalized_query, has_data)
+        stages["route"] = int((time.perf_counter() - stage_started) * 1000)
 
         merged_hits: list[dict] = []
         context = ""
+        weak_context = False
 
         if route == "db_list":
-            context = self._db_list_context(db, scope_ids)
+            stage_started = time.perf_counter()
+            context = self._truncate_context(self._db_list_context(db, scope_ids))
+            stages["build_context"] = int((time.perf_counter() - stage_started) * 1000)
             if not context:
                 route = "direct"
 
         if route == "db_content":
-            context = self._db_content_context(db, scope_ids)
+            stage_started = time.perf_counter()
+            context = self._truncate_context(self._db_content_context(db, scope_ids))
+            stages["build_context"] = int((time.perf_counter() - stage_started) * 1000)
             if not context:
                 route = "direct"
 
         if route == "vector":
+            stage_started = time.perf_counter()
             dense_hits = self._dense_retrieve(normalized_query, scope_ids)
+            stages["dense"] = int((time.perf_counter() - stage_started) * 1000)
+
+            stage_started = time.perf_counter()
             fts_hits = self._fts_retrieve(db, normalized_query, scope_ids)
+            stages["fts"] = int((time.perf_counter() - stage_started) * 1000)
+
+            stage_started = time.perf_counter()
             merged_hits = self._rrf_fuse(dense_hits, fts_hits)
             if not merged_hits:
-                route = "db_content"
-                context = self._db_content_context(db, scope_ids)
-                if not context:
-                    route = "direct"
+                weak_context = True
+                context = self._truncate_context(self._db_content_context(db, scope_ids)[:1500])
+                route = "db_content" if context else "direct"
             else:
-                context = "\n\n".join(
-                    [f"[chunk:{hit['chunk_id']}] {hit['text']}" for hit in merged_hits[: settings.rag_context_count]]
+                context = self._truncate_context(
+                    "\n\n".join(
+                        [f"[chunk:{hit['chunk_id']}] {hit['text']}" for hit in merged_hits[: settings.rag_context_count]]
+                    )
                 )
+            stages["build_context"] = int((time.perf_counter() - stage_started) * 1000)
 
-        # 读取最近多轮会话，提升连续对话体验
+        stage_started = time.perf_counter()
         history_context = self._history_context(db, session_id)
+        stages["history"] = int((time.perf_counter() - stage_started) * 1000)
+
+        stage_started = time.perf_counter()
         answer = self._build_answer(route, normalized_query, context, history_context)
+        stages["llm_generate"] = int((time.perf_counter() - stage_started) * 1000)
 
         effective_context_len = len(re.sub(r"\s+", "", context))
-        if route == "vector" and (len(merged_hits) <= 1 or effective_context_len < 400):
+        if weak_context or (route == "vector" and (len(merged_hits) <= 1 or effective_context_len < 400)):
             note = "当前资料较少，结论仅供参考，建议补充相关视频后再问一次。"
             if note not in answer:
                 answer = f"{answer.rstrip()}\n\n{note}".strip()
 
         latency_ms = int((time.perf_counter() - started) * 1000)
 
+        stage_started = time.perf_counter()
         session = db.get(ChatSession, session_id) if session_id else None
         if not session:
             title = normalized_query[:40] if normalized_query else "New Chat"
@@ -598,6 +677,9 @@ class RagService:
             )
         )
         db.commit()
+        stages["db_commit"] = int((time.perf_counter() - stage_started) * 1000)
+
+        self._log_timing("chat.ask", route, latency_ms, len(scope_ids), len(merged_hits), stages)
 
         return ChatAskResponse(
             session_id=session.id,
@@ -615,7 +697,157 @@ class RagService:
                 for hit in merged_hits
             ],
         )
+    def answer_stream(
+        self,
+        db: Session,
+        query: str,
+        session_id: int | None,
+        collection_ids: list[str] | None,
+    ) -> Iterable[tuple[str, dict]]:
+        """
+        Function: Run streaming RAG pipeline and yield SSE events.
+        Params:
+        - db: SQLAlchemy session.
+        - query: User query.
+        - session_id: Existing session id.
+        - collection_ids: Selected collection scope.
+        Returns:
+        - Iterable[tuple[str, dict]]: Event name and payload chunks.
+        """
+        started = time.perf_counter()
+        stages: dict[str, int] = {}
+        stage_started = time.perf_counter()
+        normalized_query = self._normalize_query(query)
+        scope_ids = self._resolve_scope_item_ids(db, collection_ids)
+        has_data = bool(scope_ids)
+        route = self._route(normalized_query, has_data)
+        stages["route"] = int((time.perf_counter() - stage_started) * 1000)
 
+        merged_hits: list[dict] = []
+        context = ""
+        weak_context = False
+
+        if route == "db_list":
+            stage_started = time.perf_counter()
+            context = self._truncate_context(self._db_list_context(db, scope_ids))
+            stages["build_context"] = int((time.perf_counter() - stage_started) * 1000)
+            if not context:
+                route = "direct"
+
+        if route == "db_content":
+            stage_started = time.perf_counter()
+            context = self._truncate_context(self._db_content_context(db, scope_ids))
+            stages["build_context"] = int((time.perf_counter() - stage_started) * 1000)
+            if not context:
+                route = "direct"
+
+        if route == "vector":
+            stage_started = time.perf_counter()
+            dense_hits = self._dense_retrieve(normalized_query, scope_ids)
+            stages["dense"] = int((time.perf_counter() - stage_started) * 1000)
+
+            stage_started = time.perf_counter()
+            fts_hits = self._fts_retrieve(db, normalized_query, scope_ids)
+            stages["fts"] = int((time.perf_counter() - stage_started) * 1000)
+
+            stage_started = time.perf_counter()
+            merged_hits = self._rrf_fuse(dense_hits, fts_hits)
+            if not merged_hits:
+                weak_context = True
+                context = self._truncate_context(self._db_content_context(db, scope_ids)[:1500])
+                route = "db_content" if context else "direct"
+            else:
+                context = self._truncate_context(
+                    "\n\n".join(
+                        [f"[chunk:{hit['chunk_id']}] {hit['text']}" for hit in merged_hits[: settings.rag_context_count]]
+                    )
+                )
+            stages["build_context"] = int((time.perf_counter() - stage_started) * 1000)
+
+        stage_started = time.perf_counter()
+        history_context = self._history_context(db, session_id)
+        stages["history"] = int((time.perf_counter() - stage_started) * 1000)
+        system, user, is_structured = self._build_prompts(route, normalized_query, context, history_context)
+
+        parts: list[str] = []
+        stage_started = time.perf_counter()
+        try:
+            for delta in self._get_qwen().stream_chat(
+                system_prompt=system,
+                user_prompt=user,
+                timeout_sec=settings.qwen_stream_timeout_sec,
+            ):
+                if not delta:
+                    continue
+                parts.append(delta)
+                yield "delta", {"text": delta}
+            stages["llm_generate"] = int((time.perf_counter() - stage_started) * 1000)
+
+            answer = self._sanitize_answer_text("".join(parts), is_structured)
+            effective_context_len = len(re.sub(r"\s+", "", context))
+            if weak_context or (route == "vector" and (len(merged_hits) <= 1 or effective_context_len < 400)):
+                note = "当前资料较少，结论仅供参考，建议补充相关视频后再问一次。"
+                if note not in answer:
+                    answer = f"{answer.rstrip()}\n\n{note}".strip()
+                    yield "delta", {"text": "\n\n" + note}
+
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            stage_started = time.perf_counter()
+            session = db.get(ChatSession, session_id) if session_id else None
+            if not session:
+                title = normalized_query[:40] if normalized_query else "New Chat"
+                session = ChatSession(title=title)
+                db.add(session)
+                db.flush()
+
+            db.add(
+                ChatMessage(
+                    session_id=session.id,
+                    role="user",
+                    content=query,
+                    route_type=route,
+                    retrieved_video_ids=sorted({hit["platform_item_id"] for hit in merged_hits}) if merged_hits else [],
+                    retrieved_chunk_ids=[hit["chunk_id"] for hit in merged_hits] if merged_hits else [],
+                    model=settings.qwen_chat_model,
+                )
+            )
+            db.add(
+                ChatMessage(
+                    session_id=session.id,
+                    role="assistant",
+                    content=answer,
+                    route_type=route,
+                    retrieved_video_ids=sorted({hit["platform_item_id"] for hit in merged_hits}) if merged_hits else [],
+                    retrieved_chunk_ids=[hit["chunk_id"] for hit in merged_hits] if merged_hits else [],
+                    model=settings.qwen_chat_model,
+                    latency_ms=latency_ms,
+                )
+            )
+            db.commit()
+            stages["db_commit"] = int((time.perf_counter() - stage_started) * 1000)
+
+            self._log_timing("chat.ask.stream", route, latency_ms, len(scope_ids), len(merged_hits), stages)
+
+            yield "done", {"ok": True}
+            yield "meta", {
+                "session_id": session.id,
+                "route_type": route,
+                "latency_ms": latency_ms,
+                "hits": [
+                    ChatHit(
+                        chunk_id=hit["chunk_id"],
+                        platform_item_id=hit["platform_item_id"],
+                        title=hit.get("title", ""),
+                        score=round(hit["score"], 6),
+                        text=hit.get("text", ""),
+                    ).model_dump()
+                    for hit in merged_hits
+                ],
+            }
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            logger.exception("chat.ask.stream failed")
+            yield "error", {"message": str(exc)}
     def list_sessions(self, db: Session, limit: int = 30) -> ChatSessionsResponse:
         """
         功能：列出 RagService.list_sessions 对应的数据集合。

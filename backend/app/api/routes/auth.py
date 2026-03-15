@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import UserSession
-from app.schemas import LoginStartResponse, LoginStatusResponse
+from app.schemas import LoginLogoutResponse, LoginStartResponse, LoginStatusResponse
 from app.services.douyin_collector import collector
 
 router = APIRouter()
@@ -46,3 +46,26 @@ async def login_status(db: Session = Depends(get_db)) -> LoginStatusResponse:
     db.commit()
 
     return LoginStatusResponse(status=collector.status, message=collector.message)
+
+
+@router.post("/login/logout", response_model=LoginLogoutResponse)
+async def logout_login(db: Session = Depends(get_db)) -> LoginLogoutResponse:
+    """
+    功能：执行 logout_login 的核心业务逻辑。
+    参数：
+    - db：输入参数。
+    返回值：
+    - LoginLogoutResponse：函数处理结果。
+    """
+    success, message = collector.logout()
+
+    session = db.execute(select(UserSession).where(UserSession.session_id == "local")).scalar_one_or_none()
+    if session is None:
+        session = UserSession(session_id="local")
+        db.add(session)
+
+    session.is_logged_in = False
+    session.message = message
+    db.commit()
+
+    return LoginLogoutResponse(success=success, message=message)

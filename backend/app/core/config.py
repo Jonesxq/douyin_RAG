@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     qwen_chat_model: str = "qwen-plus"
     qwen_embedding_model: str = "text-embedding-v3"
+    qwen_max_retries: int = 0
+    qwen_route_timeout_sec: float = 4.0
+    qwen_route_max_tokens: int = 1
+    qwen_chat_timeout_sec: float = 20.0
+    qwen_stream_timeout_sec: float = 20.0
     embedding_provider: str = "local"
     local_embedding_model: str = "BAAI/bge-small-zh-v1.5"
     local_embedding_cache_dir: str = "backend/storage/models"
@@ -54,9 +59,12 @@ class Settings(BaseSettings):
     rag_topk_dense: int = 20
     rag_topk_fts: int = 20
     rag_context_count: int = 8
-    rag_route_with_llm: bool = True
+    rag_db_content_limit: int = 12
+    rag_excerpt_chars: int = 800
+    rag_prompt_max_context_chars: int = 4500
+    rag_route_with_llm: bool = False
     chat_history_window: int = 6
-    chat_max_content_chars: int = 1200
+    chat_max_content_chars: int = 800
 
     startup_validate: bool = True
     startup_require_python312: bool = True

@@ -18,6 +18,11 @@ class LoginStatusResponse(BaseModel):
     message: str = ""
 
 
+class LoginLogoutResponse(BaseModel):
+    success: bool
+    message: str
+
+
 class FavoriteCollectionDTO(BaseModel):
     id: int
     collection_id: str

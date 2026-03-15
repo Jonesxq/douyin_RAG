@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 
-import { getLoginStatus, startLogin, type LoginStatus } from "./api";
+import { getLoginStatus, logoutLogin, startLogin, type LoginStatus } from "./api";
 import ChatPage from "./pages/ChatPage";
 import FavoritesPage from "./pages/FavoritesPage";
 import LoginPage from "./pages/LoginPage";
@@ -12,6 +12,7 @@ export default function App() {
   const [view, setView] = useState<View>("home");
   const [status, setStatus] = useState<LoginStatus>({ status: "idle", message: "" });
   const [loadingLogin, setLoadingLogin] = useState(false);
+  const [loadingLogout, setLoadingLogout] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [activeCollectionId, setActiveCollectionId] = useState("all");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -52,6 +53,20 @@ export default function App() {
     document.body.classList.toggle("theme-day", themeMode === "day");
     window.localStorage.setItem("theme_mode", themeMode);
   }, [themeMode]);
+
+  const onLogout = async () => {
+    setLoginError("");
+    setLoadingLogout(true);
+    try {
+      await logoutLogin();
+      setView("home");
+      await refreshStatus();
+    } catch (err) {
+      setLoginError((err as Error).message);
+    } finally {
+      setLoadingLogout(false);
+    }
+  };
 
   const onStartLogin = async () => {
     setLoginError("");
@@ -97,7 +112,12 @@ export default function App() {
             工作台
           </button>
           {status.status === "logged_in" ? (
-            <span className="login-chip">已登录</span>
+            <>
+              <span className="login-chip">已登录</span>
+              <button className="ghost" onClick={() => void onLogout()} disabled={loadingLogout}>
+                {loadingLogout ? "退出中..." : "退出登录"}
+              </button>
+            </>
           ) : (
             <button className="primary" onClick={() => void onStartLogin()} disabled={loadingLogin}>
               {loadingLogin ? "启动中..." : "扫码登录"}

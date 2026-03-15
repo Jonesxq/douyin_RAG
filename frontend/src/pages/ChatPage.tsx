@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   askQuestion,
+  askQuestionStream,
   clearChatSessionMessages,
   deleteChatSession,
   getChatSessionMessages,
@@ -17,6 +18,10 @@ type Message = {
 };
 
 const LIST_LINE_RE = /^(\d+[.)、]|[-*•])\s+/;
+
+type Props = {
+  activeCollectionId: string;
+};
 
 function normalizeAssistantBlocks(content: string): string[] {
   const normalized = content.replace(/\r\n/g, "\n").trim();
@@ -48,26 +53,65 @@ function normalizeAssistantParagraph(block: string): string {
   return lines.join(" ");
 }
 
-type Props = {
-  activeCollectionId: string;
-};
-
 export default function ChatPage({ activeCollectionId }: Props) {
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<number | undefined>(undefined);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessions, setSessions] = useState<ChatSessionItem[]>([]);
   const [showSessions, setShowSessions] = useState(true);
-  const [lastResponse, setLastResponse] = useState<ChatAskResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [error, setError] = useState("");
+
   const chatStreamRef = useRef<HTMLDivElement | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   const scopeIds = useMemo(
     () => (activeCollectionId === "all" ? ["all"] : [activeCollectionId]),
     [activeCollectionId],
   );
+
+  const cancelActiveStream = () => {
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
+  };
+
+  const appendAssistantDelta = (delta: string) => {
+    setMessages((prev) => {
+      if (prev.length === 0) {
+        return [{ role: "assistant", content: delta }];
+      }
+      const next = [...prev];
+      const lastIndex = next.length - 1;
+      if (next[lastIndex].role !== "assistant") {
+        next.push({ role: "assistant", content: delta });
+        return next;
+      }
+      next[lastIndex] = {
+        ...next[lastIndex],
+        content: `${next[lastIndex].content}${delta}`,
+      };
+      return next;
+    });
+  };
+
+  const setAssistantTail = (content: string) => {
+    setMessages((prev) => {
+      if (prev.length === 0) {
+        return [{ role: "assistant", content }];
+      }
+      const next = [...prev];
+      const lastIndex = next.length - 1;
+      if (next[lastIndex].role !== "assistant") {
+        next.push({ role: "assistant", content });
+        return next;
+      }
+      next[lastIndex] = { ...next[lastIndex], content };
+      return next;
+    });
+  };
 
   const loadSessions = async (autoOpenLatest = false) => {
     setLoadingSessions(true);
@@ -85,6 +129,7 @@ export default function ChatPage({ activeCollectionId }: Props) {
   };
 
   const onSelectSession = async (targetSessionId: number) => {
+    cancelActiveStream();
     try {
       const res = await getChatSessionMessages(targetSessionId);
       const nextMessages: Message[] = res.items.map((item: ChatMessageItem) => ({
@@ -93,7 +138,6 @@ export default function ChatPage({ activeCollectionId }: Props) {
       }));
       setSessionId(targetSessionId);
       setMessages(nextMessages);
-      setLastResponse(null);
       setError("");
     } catch (err) {
       setError((err as Error).message);
@@ -111,10 +155,16 @@ export default function ChatPage({ activeCollectionId }: Props) {
     chatStreamRef.current.scrollTop = chatStreamRef.current.scrollHeight;
   }, [messages, loading]);
 
+  useEffect(() => {
+    return () => {
+      cancelActiveStream();
+    };
+  }, []);
+
   const onNewSession = () => {
+    cancelActiveStream();
     setSessionId(undefined);
     setMessages([]);
-    setLastResponse(null);
     setError("");
   };
 
@@ -122,6 +172,7 @@ export default function ChatPage({ activeCollectionId }: Props) {
     if (!sessionId) {
       return;
     }
+    cancelActiveStream();
     try {
       await deleteChatSession(sessionId);
       onNewSession();
@@ -135,10 +186,10 @@ export default function ChatPage({ activeCollectionId }: Props) {
     if (!sessionId) {
       return;
     }
+    cancelActiveStream();
     try {
       await clearChatSessionMessages(sessionId);
       setMessages([]);
-      setLastResponse(null);
       await loadSessions(false);
     } catch (err) {
       setError((err as Error).message);
@@ -150,21 +201,63 @@ export default function ChatPage({ activeCollectionId }: Props) {
       return;
     }
 
+    cancelActiveStream();
+
     const question = input.trim();
     setInput("");
     setError("");
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    setMessages((prev) => [...prev, { role: "user", content: question }, { role: "assistant", content: "" }]);
     setLoading(true);
 
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+
+    let streamMeta: ChatAskResponse | null = null;
+    let hasDelta = false;
+
     try {
-      const response = await askQuestion(question, sessionId, scopeIds);
-      setSessionId(response.session_id);
-      setLastResponse(response);
-      setMessages((prev) => [...prev, { role: "assistant", content: response.answer }]);
+      await askQuestionStream(question, sessionId, scopeIds, {
+        signal: controller.signal,
+        onDelta: (delta) => {
+          hasDelta = true;
+          appendAssistantDelta(delta);
+        },
+        onMeta: (meta) => {
+          streamMeta = meta;
+          setSessionId(meta.session_id);
+        },
+      });
+
+      if (!streamMeta && !hasDelta) {
+        const fallback = await askQuestion(question, sessionId, scopeIds);
+        setSessionId(fallback.session_id);
+        setAssistantTail(fallback.answer);
+      }
+
       await loadSessions(false);
     } catch (err) {
-      setError((err as Error).message);
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      const streamError = (err as Error).message;
+      if (!hasDelta) {
+        try {
+          const fallback = await askQuestion(question, sessionId, scopeIds);
+          setSessionId(fallback.session_id);
+          setAssistantTail(fallback.answer);
+          await loadSessions(false);
+        } catch (fallbackErr) {
+          setError((fallbackErr as Error).message || streamError);
+          setAssistantTail("请求失败，请稍后重试。");
+        }
+      } else {
+        setError(streamError);
+      }
     } finally {
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+      }
       setLoading(false);
     }
   };
@@ -267,21 +360,7 @@ export default function ChatPage({ activeCollectionId }: Props) {
                 )}
               </div>
             ))}
-
-            {loading ? (
-              <div className="chat-item chat-assistant">
-                <p>正在整理答案...</p>
-              </div>
-            ) : null}
           </div>
-
-          {lastResponse ? (
-            <div className="chat-meta">
-              <span>会话: {lastResponse.session_id}</span>
-              <span>耗时: {lastResponse.latency_ms}ms</span>
-              <span>命中: {lastResponse.hits.length}</span>
-            </div>
-          ) : null}
 
           {error ? <p className="error">{error}</p> : null}
 

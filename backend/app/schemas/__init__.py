@@ -15,12 +15,14 @@
     KnowledgeSyncRequest,
     KnowledgeSyncResponse,
     LoginStartResponse,
+    LoginLogoutResponse,
     LoginStatusResponse,
     SyncTaskDTO,
 )
 
 __all__ = [
     "LoginStartResponse",
+    "LoginLogoutResponse",
     "LoginStatusResponse",
     "FavoriteCollectionDTO",
     "FavoriteCollectionsResponse",

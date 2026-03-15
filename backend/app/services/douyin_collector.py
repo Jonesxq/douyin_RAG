@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+import shutil
 import sys
 import time
 from dataclasses import dataclass, field
@@ -163,6 +164,53 @@ class DouyinCollector:
                 last_exc = exc
 
         raise RuntimeError(f"All browser launch candidates failed: {last_exc}")
+
+    def logout(self) -> tuple[bool, str]:
+        """
+        功能：执行 DouyinCollector.logout 的核心业务逻辑。
+        参数：
+        - 无。
+        返回值：
+        - tuple[bool, str]：函数处理结果。
+        """
+        errors: list[str] = []
+
+        # 如果仍有登录任务在跑，先取消，避免状态被并发覆盖。
+        if self._login_task and not self._login_task.done():
+            self._login_task.cancel()
+            self._login_task = None
+
+        try:
+            if self.storage_state_path.exists():
+                self.storage_state_path.unlink(missing_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"remove state failed: {exc}")
+
+        # 清理 Playwright 用户数据目录，避免再次点击扫码时自动复用旧会话。
+        user_data_dir = Path(settings.playwright_user_data_dir)
+        try:
+            if user_data_dir.exists():
+                shutil.rmtree(user_data_dir, ignore_errors=False)
+            user_data_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"remove user_data_dir failed: {exc}")
+
+        # 清理下载链路使用的 cookie 文件，避免旧会话影响入库。
+        try:
+            cookie_file = settings.storage_path / "tmp" / "yt_dlp_douyin_cookies.txt"
+            if cookie_file.exists():
+                cookie_file.unlink(missing_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"remove cookie_file failed: {exc}")
+
+        if errors:
+            self.status = "failed"
+            self.message = "; ".join(errors)[:1000]
+            return False, self.message
+
+        self.status = "idle"
+        self.message = "Logged out. Please scan QR code again."
+        return True, self.message
 
     def start_login(self) -> tuple[bool, str]:
         # 启动扫码登录任务：只负责触发，不阻塞 API 请求线程。

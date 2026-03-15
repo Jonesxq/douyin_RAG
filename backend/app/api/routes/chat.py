@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 """问答与会话管理接口：提问、流式输出、会话增删查。"""
 
@@ -18,6 +18,18 @@ from app.schemas import (
 from app.services.rag_service import rag_service
 
 router = APIRouter()
+
+
+def _sse_event(event: str, payload: dict) -> str:
+    """
+    功能：执行 _sse_event 的内部处理逻辑。
+    参数：
+    - event：输入参数。
+    - payload：输入参数。
+    返回值：
+    - str：函数处理结果。
+    """
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 @router.post("/ask", response_model=ChatAskResponse)
@@ -52,11 +64,6 @@ def ask_stream(payload: ChatAskRequest, db: Session = Depends(get_db)) -> Stream
     if not payload.query.strip():
         raise HTTPException(status_code=400, detail="Query is empty")
 
-    try:
-        response = rag_service.answer(db, payload.query, payload.session_id, payload.collection_ids)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
     def _generate():
         """
         功能：执行 _generate 的内部处理逻辑。
@@ -65,18 +72,21 @@ def ask_stream(payload: ChatAskRequest, db: Session = Depends(get_db)) -> Stream
         返回值：
         - 未显式标注：请以函数实现中的 return 语句为准。
         """
-        yield response.answer
-        yield "\n[[META_JSON]]" + json.dumps(
-            {
-                "session_id": response.session_id,
-                "route_type": response.route_type,
-                "latency_ms": response.latency_ms,
-                "hits": [hit.model_dump() for hit in response.hits],
-            },
-            ensure_ascii=False,
-        )
+        try:
+            for event, data in rag_service.answer_stream(db, payload.query, payload.session_id, payload.collection_ids):
+                yield _sse_event(event, data)
+        except Exception as exc:  # noqa: BLE001
+            yield _sse_event("error", {"message": str(exc)})
 
-    return StreamingResponse(_generate(), media_type="text/plain; charset=utf-8")
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/sessions", response_model=ChatSessionsResponse)
