@@ -4,7 +4,7 @@
 
 <img width="1846" height="786" alt="image" src="https://github.com/user-attachments/assets/595d088e-04d0-4f54-b13e-0b688f20641c" />
 
-[点击这里观看视频]([https://www.bilibili.com/video/BV1bhw2zvExA](https://www.bilibili.com/video/BV1bhw2zvEXa/?spm_id_from=333.1387.homepage.video_card.click&vd_source=d7e521eb490e3a7ad9e1c27b8c531144))
+[点击这里观看视频](https://www.bilibili.com/video/BV1bhw2zvEXa?vd_source=91cc575981e4f125145bd5e62cf1f8e3)
 ## 技术栈
 
 - Frontend: React + Vite + TypeScript + CSS
