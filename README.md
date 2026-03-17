@@ -1,10 +1,10 @@
 ﻿# Douyin Favorites RAG
 
 个人版“抖音收藏夹 RAG 知识库”本地项目：扫码登录抖音后手动同步收藏夹，按收藏夹一键入库（音频转写 -> 切块 -> Chroma 向量），再进行对话问答。
-[点击这里观看视频]([https://www.bilibili.com/video/BV1bhw2zvEXa?vd_source=91cc575981e4f125145bd5e62cf1f8e3](https://www.bilibili.com/video/BV1bhw2zvEXa/?spm_id_from=333.1387.homepage.video_card.click&vd_source=d7e521eb490e3a7ad9e1c27b8c531144))
+
 <img width="1846" height="786" alt="image" src="https://github.com/user-attachments/assets/595d088e-04d0-4f54-b13e-0b688f20641c" />
 
-
+[点击这里观看视频](https://www.bilibili.com/video/BV1bhw2zvExA)
 ## 技术栈
 
 - Frontend: React + Vite + TypeScript + CSS
