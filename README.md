@@ -116,6 +116,20 @@ npm run dev
 uv run --project backend python backend/scripts/rebuild_storage.py
 ```
 
+## Docker 镜像
+
+推送到 `main` 分支后，CI 的后端检查和前端构建都通过时，GitHub Actions 会构建并发布两个镜像到 GitHub Container Registry（GHCR）：
+
+- 后端：`ghcr.io/jonesxq/douyin-rag-backend`
+- 前端：`ghcr.io/jonesxq/douyin-rag-frontend`
+
+每个镜像会带有 `latest` 和 `sha-<提交号>` 两个标签。当前工作流只构建并发布镜像，不会部署到服务器。GHCR 新建镜像包默认是私有的，可在仓库关联的 Packages 页面调整可见性。
+
+运行容器时，需要把后端的 `/data` 挂载到持久化目录，并通过环境变量提供 Qwen 配置。SQLite、Chroma 数据、Playwright 登录状态和模型缓存都保存在该目录下。
+前端镜像通过 Docker 网络中的 `backend:8000` 访问后端，因此两个容器运行时需要加入同一个 Docker 网络。
+
+注意：当前抖音登录流程会在运行后端的机器上打开可见浏览器窗口，前端没有二维码截图接口。因此镜像可以构建和启动，但无桌面的容器环境暂时不能通过网页完成首次扫码登录；后续需要改造扫码展示流程或预先提供登录状态。
+
 ## 新 API
 
 - `POST /auth/douyin/login/start`

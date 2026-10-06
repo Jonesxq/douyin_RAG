@@ -1,4 +1,4 @@
-name: CI
+name: CI and image publishing
 
 on:
   push:
@@ -59,3 +59,50 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  publish-images:
+    name: Build and publish Docker images
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.3.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish backend image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/jonesxq/douyin-rag-backend:latest
+            ghcr.io/jonesxq/douyin-rag-backend:sha-${{ github.sha }}
+          cache-from: type=gha,scope=backend-image
+          cache-to: type=gha,mode=max,scope=backend-image
+
+      - name: Build and publish frontend image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/jonesxq/douyin-rag-frontend:latest
+            ghcr.io/jonesxq/douyin-rag-frontend:sha-${{ github.sha }}
+          cache-from: type=gha,scope=frontend-image
+          cache-to: type=gha,mode=max,scope=frontend-image

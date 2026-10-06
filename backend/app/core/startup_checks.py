@@ -36,7 +36,16 @@ def run_startup_checks() -> None:
         )
 
     browser_path = Path(settings.playwright_browsers_path)
-    chromium_exists = any(browser_path.glob("chromium-*/chrome-win/chrome.exe"))
+    chromium_patterns = (
+        "chromium-*/chrome-linux/chrome",
+        "chromium-*/chrome-linux64/chrome",
+        "chromium-*/chrome-win/chrome.exe",
+    )
+    chromium_exists = any(
+        candidate.is_file()
+        for pattern in chromium_patterns
+        for candidate in browser_path.glob(pattern)
+    )
     if not chromium_exists and not settings.playwright_browser_channel.strip():
         issues.append(
             "Playwright Chromium runtime not found in project storage. Run: "
