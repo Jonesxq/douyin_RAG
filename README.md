@@ -132,7 +132,7 @@ uv run --project backend python backend/scripts/rebuild_storage.py
 
 ### 自动部署到本机 Docker Desktop
 
-GitHub Actions 在主分支推送后运行 CI 并发布镜像。本机部署器每 5 分钟检查 GHCR 的 `latest` 镜像，有新镜像时执行 `docker compose up -d` 更新容器。部署后可在 `http://localhost:8080` 打开前端；后端数据保存在 Docker 命名卷 `douyin-rag-data` 中。部署日志保存在 `%LOCALAPPDATA%\DouyinRAG\deploy.log`。
+GitHub Actions 在主分支推送后运行 CI 并发布镜像。本机部署器每 5 分钟检查 GHCR 的 `latest` 镜像，有新镜像时执行 `docker compose up -d` 更新容器。部署后可在 `http://localhost:8080` 打开前端；后端数据保存在 Docker 命名卷 `douyin-rag-data` 中。部署日志保存在 `%LOCALAPPDATA%\DouyinRAG\deploy.log`。更新部署脚本后，重新运行安装脚本会停止旧任务并重启它。
 
 本仓库是公开仓库。GitHub 提醒公开仓库的 self-hosted runner 可能被 fork PR 的工作流利用并在本机执行代码，因此这里不把本机注册为 GitHub runner；本地部署器只拉取 GHCR 镜像，不运行仓库的 Actions 工作流。
 

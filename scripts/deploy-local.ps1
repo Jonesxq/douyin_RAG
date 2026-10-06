@@ -26,8 +26,18 @@ function Write-DeployLog {
 function Invoke-DockerCompose {
     param([string[]]$ComposeArguments)
 
-    $output = & docker compose @composeBaseArgs @ComposeArguments 2>&1
-    $exitCode = $LASTEXITCODE
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell 5.1 maps native stderr output into PowerShell error records.
+        # Compose writes normal pull progress to stderr, so keep it non-terminating here.
+        $ErrorActionPreference = "Continue"
+        $output = & docker compose @composeBaseArgs @ComposeArguments 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
     foreach ($line in $output) {
         Write-DeployLog ([string]$line)
     }
