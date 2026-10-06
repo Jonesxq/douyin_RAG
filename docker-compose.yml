@@ -1,0 +1,23 @@
+services:
+  backend:
+    image: ghcr.io/jonesxq/douyin-rag-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      APP_ENV: production
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+    volumes:
+      - douyin-rag-data:/data
+
+  frontend:
+    image: ghcr.io/jonesxq/douyin-rag-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${DOUYIN_RAG_BIND_ADDRESS:-127.0.0.1}:${DOUYIN_RAG_PORT:-8080}:80"
+
+volumes:
+  douyin-rag-data:
+    name: douyin-rag-data
