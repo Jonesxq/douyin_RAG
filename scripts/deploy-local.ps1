@@ -48,6 +48,7 @@ function Invoke-DockerCompose {
 }
 
 $env:IMAGE_TAG = "latest"
+Write-DeployLog "Deployment poller started."
 
 while ($true) {
     try {
