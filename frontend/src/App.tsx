@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 
 import { getLoginStatus, logoutLogin, startLogin, type LoginStatus } from "./api";
+import { useRef } from "react";
 import ChatPage from "./pages/ChatPage";
 import FavoritesPage from "./pages/FavoritesPage";
 import LoginPage from "./pages/LoginPage";
@@ -14,6 +15,8 @@ export default function App() {
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [loadingLogout, setLoadingLogout] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [loginQrImageUrl, setLoginQrImageUrl] = useState<string | null>(null);
+  const loginQrImageUrlRef = useRef<string | null>(null);
   const [activeCollectionId, setActiveCollectionId] = useState("all");
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = window.localStorage.getItem("theme_mode");
@@ -32,22 +35,82 @@ export default function App() {
     }
   };
 
+  const updateLoginQrImage = (image: Blob | null) => {
+    if (loginQrImageUrlRef.current) {
+      URL.revokeObjectURL(loginQrImageUrlRef.current);
+    }
+    const nextUrl = image ? URL.createObjectURL(image) : null;
+    loginQrImageUrlRef.current = nextUrl;
+    setLoginQrImageUrl(nextUrl);
+  };
+
   useEffect(() => {
     void refreshStatus();
   }, []);
 
   useEffect(() => {
     if (status.status !== "pending") {
+      updateLoginQrImage(null);
       return;
     }
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
-        return;
+
+    let active = true;
+    let timer: number | undefined;
+    const pollLogin = async () => {
+      let shouldContinue = false;
+      try {
+        const data = await getLoginStatus();
+        if (!active) {
+          return;
+        }
+        setStatus(data);
+        shouldContinue = data.status === "pending";
+        if (data.status === "logged_in") {
+          setView("workspace");
+          updateLoginQrImage(null);
+        } else if (data.status === "pending") {
+          try {
+            const image = await getLoginQrImage();
+            if (active && image) {
+              updateLoginQrImage(image);
+            }
+          } catch (err) {
+            if (active) {
+              setLoginError((err as Error).message);
+            }
+          }
+        } else {
+          updateLoginQrImage(null);
+        }
+      } catch (err) {
+        if (active) {
+          setLoginError((err as Error).message);
+          shouldContinue = true;
+        }
       }
-      void refreshStatus();
-    }, 3000);
-    return () => window.clearInterval(timer);
+
+      if (active && shouldContinue) {
+        timer = window.setTimeout(pollLogin, 2500);
+      }
+    };
+
+    void pollLogin();
+    return () => {
+      active = false;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
   }, [status.status]);
+
+  useEffect(
+    () => () => {
+      if (loginQrImageUrlRef.current) {
+        URL.revokeObjectURL(loginQrImageUrlRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     document.body.classList.toggle("theme-day", themeMode === "day");
@@ -119,17 +182,22 @@ export default function App() {
               </button>
             </>
           ) : (
-            <button className="primary" onClick={() => void onStartLogin()} disabled={loadingLogin}>
-              {loadingLogin ? "启动中..." : "扫码登录"}
+            <button
+              className="primary"
+              onClick={() => void onStartLogin()}
+              disabled={loadingLogin || status.status === "pending"}
+            >
+              {loadingLogin ? "启动中..." : status.status === "pending" ? "等待扫码..." : "扫码登录"}
             </button>
           )}
         </div>
       </header>
 
       <main className="bm-main">
-        {view === "home" ? (
+        {view === "home" || status.status === "pending" ? (
           <LoginPage
             status={status}
+            qrImageUrl={loginQrImageUrl}
             loading={loadingLogin}
             error={loginError}
             onStartLogin={onStartLogin}

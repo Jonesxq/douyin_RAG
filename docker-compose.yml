@@ -6,6 +6,7 @@ services:
     environment:
       APP_ENV: production
       QWEN_API_KEY: ${QWEN_API_KEY:-}
+      PLAYWRIGHT_HEADLESS: "true"
     volumes:
       - douyin-rag-data:/data
 

@@ -6,6 +6,7 @@ import asyncio
 import logging
 import shutil
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,6 +91,68 @@ class DouyinCollector:
         self.message = ""
         self._login_task: asyncio.Task[None] | None = None
         self.storage_state_path = Path(settings.playwright_user_data_dir) / "state.json"
+        self._login_qr_lock = threading.Lock()
+        self._login_qr_image: bytes | None = None
+
+    def get_login_qr_image(self) -> bytes | None:
+        """获取当前登录二维码截图；截图只保存在内存中。"""
+        with self._login_qr_lock:
+            return self._login_qr_image
+
+    def _set_login_qr_image(self, image: bytes | None) -> None:
+        with self._login_qr_lock:
+            self._login_qr_image = image
+
+    @staticmethod
+    def _click_visible_text(page, text: str) -> bool:
+        """点击页面中可见且文字完全匹配的控件。"""
+        try:
+            matches = page.get_by_text(text, exact=True)
+            for index in range(min(matches.count(), 8)):
+                candidate = matches.nth(index)
+                if candidate.is_visible():
+                    candidate.click(timeout=1500)
+                    return True
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not click Douyin login control %r: %s", text, exc)
+        return False
+
+    def _open_qr_login_dialog(self, page) -> None:
+        """打开网页扫码登录弹窗；如果页面已显示登录弹窗则保留当前状态。"""
+        try:
+            dialogs = page.get_by_role("dialog")
+            for index in range(min(dialogs.count(), 4)):
+                dialog = dialogs.nth(index)
+                if dialog.is_visible() and any(
+                    keyword in dialog.inner_text(timeout=1000)
+                    for keyword in ("登录", "扫码", "二维码")
+                ):
+                    return
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not inspect Douyin login dialog: %s", exc)
+
+        if self._click_visible_text(page, "登录"):
+            page.wait_for_timeout(800)
+
+        if self._click_visible_text(page, "扫码登录"):
+            page.wait_for_timeout(500)
+
+    @staticmethod
+    def _capture_login_qr_image(page) -> bytes:
+        """优先截取登录弹窗，避免整页缩放后二维码太小。"""
+        try:
+            dialogs = page.get_by_role("dialog")
+            for index in range(min(dialogs.count(), 4)):
+                dialog = dialogs.nth(index)
+                if dialog.is_visible() and any(
+                    keyword in dialog.inner_text(timeout=1000)
+                    for keyword in ("登录", "扫码", "二维码")
+                ):
+                    return dialog.screenshot(type="png", animations="disabled", timeout=5000)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not capture Douyin login dialog: %s", exc)
+
+        return page.screenshot(type="png", animations="disabled", timeout=5000)
 
     def _browser_launch_candidates(self, headless: bool) -> list[tuple[str, dict]]:
         """
@@ -179,6 +242,7 @@ class DouyinCollector:
         if self._login_task and not self._login_task.done():
             self._login_task.cancel()
             self._login_task = None
+        self._set_login_qr_image(None)
 
         try:
             if self.storage_state_path.exists():
@@ -224,8 +288,9 @@ class DouyinCollector:
         if self.status == "pending" and self._login_task and not self._login_task.done():
             return False, "Login already in progress"
 
+        self._set_login_qr_image(None)
         self.status = "pending"
-        self.message = "Scan QR code in the opened browser window"
+        self.message = "正在打开抖音扫码登录页面"
         self._login_task = asyncio.create_task(self._login_flow())
         return True, self.message
 
@@ -253,22 +318,32 @@ class DouyinCollector:
                 context = self._launch_persistent_context(p)
                 page = context.pages[0] if context.pages else context.new_page()
                 page.goto(settings.douyin_home_url, timeout=120_000)
+                self._open_qr_login_dialog(page)
 
                 found = False
-                for _ in range(120):
+                for attempt in range(120):
                     cookies = context.cookies()
                     has_login_cookie = any(c.get("name") in {"sessionid", "sid_guard"} for c in cookies)
                     if has_login_cookie:
                         found = True
                         break
+
+                    # 每两秒刷新一次弹窗截图，供网页显示；截图不写入磁盘。
+                    if attempt % 2 == 0:
+                        try:
+                            self._set_login_qr_image(self._capture_login_qr_image(page))
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("Failed to capture Douyin login QR: %s", exc)
                     time.sleep(1)
 
                 if not found:
+                    self._set_login_qr_image(None)
                     self.status = "failed"
-                    self.message = "Login timeout. Please retry."
+                    self.message = "登录超时，请重新获取二维码后重试。"
                     context.close()
                     return
 
+                self._set_login_qr_image(None)
                 context.storage_state(path=str(self.storage_state_path))
                 context.close()
 
@@ -276,6 +351,7 @@ class DouyinCollector:
                 self.message = "Login successful"
         except Exception as exc:  # noqa: BLE001
             logger.exception("Douyin login failed")
+            self._set_login_qr_image(None)
             self.status = "failed"
             self.message = str(exc)
 
