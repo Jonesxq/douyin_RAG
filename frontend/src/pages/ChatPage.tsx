@@ -8,13 +8,16 @@ import {
   getChatSessionMessages,
   listChatSessions,
   type ChatAskResponse,
+  type ChatHit,
   type ChatMessageItem,
   type ChatSessionItem,
+  type ChatStreamMeta,
 } from "../api";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
+  hits?: ChatHit[];
 };
 
 const LIST_LINE_RE = /^(\d+[.)、]|[-*•])\s+/;
@@ -51,6 +54,16 @@ function normalizeAssistantParagraph(block: string): string {
   }
 
   return lines.join(" ");
+}
+
+function formatSourceTime(milliseconds: number | null): string {
+  if (milliseconds === null || !Number.isFinite(milliseconds)) {
+    return "";
+  }
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 export default function ChatPage({ activeCollectionId }: Props) {
@@ -97,18 +110,34 @@ export default function ChatPage({ activeCollectionId }: Props) {
     });
   };
 
-  const setAssistantTail = (content: string) => {
+  const setAssistantTail = (content: string, hits?: ChatHit[]) => {
     setMessages((prev) => {
       if (prev.length === 0) {
-        return [{ role: "assistant", content }];
+        return [{ role: "assistant", content, hits }];
       }
       const next = [...prev];
       const lastIndex = next.length - 1;
       if (next[lastIndex].role !== "assistant") {
-        next.push({ role: "assistant", content });
+        next.push({ role: "assistant", content, hits });
         return next;
       }
-      next[lastIndex] = { ...next[lastIndex], content };
+      next[lastIndex] = { ...next[lastIndex], content, ...(hits ? { hits } : {}) };
+      return next;
+    });
+  };
+
+  const setAssistantHits = (hits: ChatHit[]) => {
+    setMessages((prev) => {
+      if (prev.length === 0) {
+        return [{ role: "assistant", content: "", hits }];
+      }
+      const next = [...prev];
+      const lastIndex = next.length - 1;
+      if (next[lastIndex].role !== "assistant") {
+        next.push({ role: "assistant", content: "", hits });
+        return next;
+      }
+      next[lastIndex] = { ...next[lastIndex], hits };
       return next;
     });
   };
@@ -135,6 +164,7 @@ export default function ChatPage({ activeCollectionId }: Props) {
       const nextMessages: Message[] = res.items.map((item: ChatMessageItem) => ({
         role: item.role,
         content: item.content,
+        hits: item.hits ?? [],
       }));
       setSessionId(targetSessionId);
       setMessages(nextMessages);
@@ -212,7 +242,7 @@ export default function ChatPage({ activeCollectionId }: Props) {
     const controller = new AbortController();
     streamAbortRef.current = controller;
 
-    let streamMeta: ChatAskResponse | null = null;
+    let streamMeta: ChatStreamMeta | null = null;
     let hasDelta = false;
 
     try {
@@ -225,13 +255,14 @@ export default function ChatPage({ activeCollectionId }: Props) {
         onMeta: (meta) => {
           streamMeta = meta;
           setSessionId(meta.session_id);
+          setAssistantHits(meta.hits ?? []);
         },
       });
 
       if (!streamMeta && !hasDelta) {
         const fallback = await askQuestion(question, sessionId, scopeIds);
         setSessionId(fallback.session_id);
-        setAssistantTail(fallback.answer);
+        setAssistantTail(fallback.answer, fallback.hits);
       }
 
       await loadSessions(false);
@@ -245,7 +276,7 @@ export default function ChatPage({ activeCollectionId }: Props) {
         try {
           const fallback = await askQuestion(question, sessionId, scopeIds);
           setSessionId(fallback.session_id);
-          setAssistantTail(fallback.answer);
+          setAssistantTail(fallback.answer, fallback.hits);
           await loadSessions(false);
         } catch (fallbackErr) {
           setError((fallbackErr as Error).message || streamError);
@@ -335,26 +366,59 @@ export default function ChatPage({ activeCollectionId }: Props) {
             {messages.map((message, index) => (
               <div key={`${message.role}-${index}`} className={`chat-item chat-${message.role}`}>
                 {message.role === "assistant" ? (
-                  <div className="chat-rich">
-                    {normalizeAssistantBlocks(message.content).map((block, blockIndex) => {
-                      const paragraph = normalizeAssistantParagraph(block);
-                      if (!paragraph) {
-                        return null;
-                      }
+                  <>
+                    <div className="chat-rich">
+                      {normalizeAssistantBlocks(message.content).map((block, blockIndex) => {
+                        const paragraph = normalizeAssistantParagraph(block);
+                        if (!paragraph) {
+                          return null;
+                        }
 
-                      if (paragraph.includes("\n")) {
-                        return (
-                          <ul key={blockIndex} className="chat-rich-list">
-                            {paragraph.split("\n").map((line, lineIndex) => (
-                              <li key={`${blockIndex}-${lineIndex}`}>{line.replace(LIST_LINE_RE, "")}</li>
-                            ))}
-                          </ul>
-                        );
-                      }
+                        if (paragraph.includes("\n")) {
+                          return (
+                            <ul key={blockIndex} className="chat-rich-list">
+                              {paragraph.split("\n").map((line, lineIndex) => (
+                                <li key={`${blockIndex}-${lineIndex}`}>{line.replace(LIST_LINE_RE, "")}</li>
+                              ))}
+                            </ul>
+                          );
+                        }
 
-                      return <p key={blockIndex}>{paragraph}</p>;
-                    })}
-                  </div>
+                        return <p key={blockIndex}>{paragraph}</p>;
+                      })}
+                    </div>
+                    {message.hits?.length ? (
+                      <div className="chat-source-list">
+                        <strong className="chat-source-heading">参考片段</strong>
+                        {message.hits.slice(0, 6).map((hit, hitIndex) => {
+                          const start = formatSourceTime(hit.start_ms);
+                          const end = formatSourceTime(hit.end_ms);
+                          const timestamp = start && end ? `${start}–${end}` : start || end;
+                          return (
+                            <article
+                              key={hit.chunk_id || `${hit.platform_item_id}-${hitIndex}`}
+                              className="chat-source-card"
+                            >
+                              <div className="chat-source-card-head">
+                                {hit.url ? (
+                                  <a href={hit.url} target="_blank" rel="noreferrer">
+                                    {hit.title || `视频 ${hit.platform_item_id}`}
+                                  </a>
+                                ) : (
+                                  <strong>{hit.title || `视频 ${hit.platform_item_id}`}</strong>
+                                )}
+                                {timestamp ? <span>{timestamp}</span> : null}
+                              </div>
+                              {hit.text ? <p className="chat-source-excerpt">{hit.text}</p> : null}
+                            </article>
+                          );
+                        })}
+                        {message.hits.length > 6 ? (
+                          <span className="chat-source-more">另有 {message.hits.length - 6} 条相关片段</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <p>{message.content}</p>
                 )}
