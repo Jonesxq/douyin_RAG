@@ -233,6 +233,43 @@ button:disabled {
   gap: 12px;
 }
 
+.login-qr-card {
+  width: min(560px, 100%);
+  margin-top: 28px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.14);
+}
+
+.login-qr-card > p:first-child {
+  margin: 0 0 14px;
+}
+
+.login-qr-card > .muted {
+  margin: 12px 0 0;
+}
+
+.login-qr-image {
+  display: block;
+  width: 100%;
+  max-height: 62vh;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.login-qr-placeholder {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--bg-soft);
+}
+
 .status-line {
   margin-top: 18px;
   display: flex;

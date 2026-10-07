@@ -260,6 +260,18 @@ export function getLoginStatus(): Promise<LoginStatus> {
   return request("/auth/douyin/login/status");
 }
 
+export async function getLoginQrImage(): Promise<Blob | null> {
+  const response = await fetch(`${API_BASE}/auth/douyin/login/qr`, { cache: "no-store" });
+  if (response.status === 204) {
+    return null;
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Request failed: ${response.status}`);
+  }
+  return response.blob();
+}
+
 export function logoutLogin(): Promise<{ success: boolean; message: string }> {
   return request("/auth/douyin/login/logout", { method: "POST" });
 }

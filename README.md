@@ -128,7 +128,7 @@ uv run --project backend python backend/scripts/rebuild_storage.py
 运行容器时，需要把后端的 `/data` 挂载到持久化目录，并通过环境变量提供 Qwen 配置。SQLite、Chroma 数据、Playwright 登录状态和模型缓存都保存在该目录下。
 前端镜像通过 Docker 网络中的 `backend:8000` 访问后端，因此两个容器运行时需要加入同一个 Docker 网络。
 
-注意：当前抖音登录流程会在运行后端的机器上打开可见浏览器窗口，前端没有二维码截图接口。因此镜像可以构建和启动，但无桌面的容器环境暂时不能通过网页完成首次扫码登录；后续需要改造扫码展示流程或预先提供登录状态。
+抖音扫码登录在容器中使用无头 Chromium 打开登录页。后端每两秒截取一次登录弹窗并通过 `GET /auth/douyin/login/qr` 临时提供给网页；截图只保存在内存中，并设置为禁止缓存。扫码成功、超时或退出登录后会清除截图。首次扫码时请保持登录页面打开。
 
 ### 自动部署到本机 Docker Desktop
 
@@ -154,12 +154,13 @@ GitHub Actions 在主分支推送后运行 CI 并发布镜像。本机部署器�
 
 3. 编辑 `%LOCALAPPDATA%\DouyinRAG\.env`，填入 `QWEN_API_KEY`（没有也可启动，但问答功能不可用）。部署器每 5 分钟读取一次配置并检查镜像。
 
-电脑需要保持开机、用户已登录且 Docker Desktop 正在运行，才能拉取和更新镜像。计划任务允许在电池供电时启动和继续运行。扫码登录仍受上文限制：当前无桌面容器不能展示首次登录二维码。
+电脑需要保持开机、用户已登录且 Docker Desktop 正在运行，才能拉取和更新镜像。计划任务允许在电池供电时启动和继续运行。扫码登录二维码会在等待期间自动刷新，无需容器连接桌面显示器。
 
 ## 新 API
 
 - `POST /auth/douyin/login/start`
 - `GET /auth/douyin/login/status`
+- `GET /auth/douyin/login/qr`
 - `POST /favorites/sync`
 - `GET /favorites/collections`
 - `GET /favorites/collections/{collection_id}/videos?page=&size=`

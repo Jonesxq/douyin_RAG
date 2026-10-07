@@ -2,7 +2,7 @@
 
 """登录相关接口：启动扫码登录、查询登录状态。"""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -46,6 +46,16 @@ async def login_status(db: Session = Depends(get_db)) -> LoginStatusResponse:
     db.commit()
 
     return LoginStatusResponse(status=collector.status, message=collector.message)
+
+
+@router.get("/login/qr")
+async def login_qr() -> Response:
+    """返回最新的抖音登录页截图；没有可用截图时返回 204。"""
+    image = collector.get_login_qr_image()
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
+    if image is None:
+        return Response(status_code=204, headers=headers)
+    return Response(content=image, media_type="image/png", headers=headers)
 
 
 @router.post("/login/logout", response_model=LoginLogoutResponse)
