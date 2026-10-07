@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 
-import { getLoginStatus, logoutLogin, startLogin, type LoginStatus } from "./api";
+import { getLoginQrImage, getLoginStatus, logoutLogin, startLogin, type LoginStatus } from "./api";
 import { useRef } from "react";
 import ChatPage from "./pages/ChatPage";
 import FavoritesPage from "./pages/FavoritesPage";
