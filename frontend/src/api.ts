@@ -73,6 +73,9 @@ export type ChatHit = {
   title: string;
   score: number;
   text: string;
+  url: string;
+  start_ms: number | null;
+  end_ms: number | null;
 };
 
 export type ChatAskResponse = {
@@ -82,6 +85,8 @@ export type ChatAskResponse = {
   latency_ms: number;
   hits: ChatHit[];
 };
+
+export type ChatStreamMeta = Pick<ChatAskResponse, "session_id" | "route_type" | "latency_ms" | "hits">;
 
 export type ChatSessionItem = {
   id: number;
@@ -102,6 +107,7 @@ export type ChatMessageItem = {
   content: string;
   route_type: string;
   created_at: string;
+  hits: ChatHit[];
 };
 
 export type ChatMessagesResponse = {
@@ -111,7 +117,7 @@ export type ChatMessagesResponse = {
 
 export type ChatStreamHandlers = {
   onDelta: (text: string) => void;
-  onMeta?: (meta: ChatAskResponse) => void;
+  onMeta?: (meta: ChatStreamMeta) => void;
   onDone?: () => void;
   onError?: (message: string) => void;
   signal?: AbortSignal;
@@ -233,7 +239,7 @@ export async function askQuestionStream(
       }
 
       if (parsed.event === "meta") {
-        handlers.onMeta?.(parsed.payload as ChatAskResponse);
+        handlers.onMeta?.(parsed.payload as ChatStreamMeta);
         continue;
       }
 

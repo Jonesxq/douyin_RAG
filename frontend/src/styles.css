@@ -624,6 +624,76 @@ button:disabled {
   gap: 6px;
 }
 
+.chat-source-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #33445f;
+}
+
+.chat-source-heading,
+.chat-source-more {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chat-source-card {
+  min-width: 0;
+  border: 1px solid #33445f;
+  border-radius: 9px;
+  padding: 7px 9px;
+  background: rgba(13, 21, 34, 0.42);
+}
+
+.chat-source-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.chat-source-card-head a {
+  color: #9fb8ff;
+  text-decoration: none;
+}
+
+.chat-source-card-head a:hover {
+  text-decoration: underline;
+}
+
+.chat-source-card-head span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chat-source-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 5px !important;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+body.theme-day .chat-source-card {
+  border-color: #d9e1ef;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+body.theme-day .chat-source-list {
+  border-top-color: #d9e1ef;
+}
+
+body.theme-day .chat-source-card-head a {
+  color: #365fbb;
+}
+
 .chat-route {
   display: inline-block;
   margin-top: 6px;

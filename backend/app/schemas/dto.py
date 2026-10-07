@@ -97,6 +97,9 @@ class ChatHit(BaseModel):
     title: str
     score: float
     text: str
+    url: str = ""
+    start_ms: int | None = None
+    end_ms: int | None = None
 
 
 class ChatAskRequest(BaseModel):
@@ -132,6 +135,7 @@ class ChatMessageDTO(BaseModel):
     content: str
     route_type: str
     created_at: datetime
+    hits: list[ChatHit] = Field(default_factory=list)
 
 
 class ChatMessagesResponse(BaseModel):
